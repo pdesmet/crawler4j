@@ -20,9 +20,13 @@ package edu.uci.ics.crawler4j.crawler;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 
+import org.apache.http.Header;
 import org.apache.http.HttpStatus;
 import org.apache.http.impl.EnglishReasonPhraseCatalog;
+import org.joda.time.DateTime;
+import org.joda.time.format.DateTimeFormat;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -33,6 +37,9 @@ import edu.uci.ics.crawler4j.fetcher.PageFetchResult;
 import edu.uci.ics.crawler4j.fetcher.PageFetcher;
 import edu.uci.ics.crawler4j.frontier.DocIDServer;
 import edu.uci.ics.crawler4j.frontier.Frontier;
+import edu.uci.ics.crawler4j.frontier.ProcessedPagesDB;
+import edu.uci.ics.crawler4j.model.CachedPage;
+import edu.uci.ics.crawler4j.parser.HtmlParseData;
 import edu.uci.ics.crawler4j.parser.NotAllowedContentException;
 import edu.uci.ics.crawler4j.parser.ParseData;
 import edu.uci.ics.crawler4j.parser.Parser;
@@ -47,6 +54,7 @@ import edu.uci.ics.crawler4j.url.WebURL;
 public class WebCrawler implements Runnable {
 
     protected static final Logger logger = LoggerFactory.getLogger(WebCrawler.class);
+    private static final String LAST_MODIFIED_HEADER_NAME = "last-modified";
 
     /**
      * The id associated to the crawler thread running this instance
@@ -91,6 +99,8 @@ public class WebCrawler implements Runnable {
      */
     private Frontier frontier;
 
+    private ProcessedPagesDB pagesDB;
+
     /**
      * Is the current crawler instance waiting for new URLs? This field is
      * mainly used by the controller to detect whether all of the crawler
@@ -113,6 +123,7 @@ public class WebCrawler implements Runnable {
         this.robotstxtServer = crawlController.getRobotstxtServer();
         this.docIdServer = crawlController.getDocIdServer();
         this.frontier = crawlController.getFrontier();
+        this.pagesDB = crawlController.getPagesDB();
         this.parser = new Parser(crawlController.getConfig());
         this.myController = crawlController;
         this.isWaitingForNewURLs = false;
@@ -315,6 +326,15 @@ public class WebCrawler implements Runnable {
         // Sub-classed should override this to add their custom functionality
     }
 
+    /**
+     * When a url is not found then you can overwrite this function to process this
+     *
+     * @param url
+     */
+    public void notFound(WebURL url) {
+        // Do nothing by default
+    }
+
     private void processPage(WebURL curURL) {
         PageFetchResult fetchResult = null;
         try {
@@ -338,8 +358,8 @@ public class WebCrawler implements Runnable {
                     statusCode == HttpStatus.SC_MOVED_TEMPORARILY ||
                     statusCode == HttpStatus.SC_MULTIPLE_CHOICES ||
                     statusCode == HttpStatus.SC_SEE_OTHER ||
-                    statusCode == HttpStatus.SC_TEMPORARY_REDIRECT || statusCode ==
-                                                                      308) { // is 3xx  todo
+                    statusCode == HttpStatus.SC_TEMPORARY_REDIRECT ||
+                    statusCode == 308) { // is 3xx  todo
                     // follow https://issues.apache.org/jira/browse/HTTPCORE-389
 
                     page.setRedirect(true);
@@ -389,9 +409,15 @@ public class WebCrawler implements Runnable {
                                          fetchResult.getEntity().getContentType().getValue();
                     onUnexpectedStatusCode(curURL.getURL(), fetchResult.getStatusCode(),
                                            contentType, description);
+
+                    if (myController.getConfig().isOnlyProcessModifiedPages()) {
+                        pagesDB.delete(curURL.getURL());
+                        notFound(curURL);
+                    }
                 }
 
             } else { // if status code is 200
+
                 if (!curURL.getURL().equals(fetchResult.getFetchedUrl())) {
                     if (docIdServer.isSeenBefore(fetchResult.getFetchedUrl())) {
                         logger.debug("Redirect page: {} has already been seen", curURL);
@@ -401,6 +427,32 @@ public class WebCrawler implements Runnable {
                     curURL.setDocid(docIdServer.getNewDocID(fetchResult.getFetchedUrl()));
                 }
 
+                DateTime lastModified = null;
+
+                if (myController.getConfig().isOnlyProcessModifiedPages()) {
+                    if (page.getFetchResponseHeaders() != null &&
+                        page.getFetchResponseHeaders().length > 0) {
+                        for (Header header : page.getFetchResponseHeaders()) {
+                            if (header.getName().toLowerCase().equals(LAST_MODIFIED_HEADER_NAME)) {
+                                lastModified =
+                                    DateTimeFormat.forPattern("EEE, dd MMM yyyy HH:mm:ss z")
+                                                  .withOffsetParsed()
+                                                  .parseDateTime(header.getValue());
+                                break;
+                            }
+                        }
+                    }
+                    CachedPage cachedPage = pagesDB.get(page.getWebURL().getURL());
+                    if (cachedPage != null) {
+
+                        if (lastModified != null &&
+                            cachedPage.getLastModifiedDate().equals(lastModified)) {
+                            logger.debug("Page: {} has not been modified ", curURL);
+                            return;
+                        }
+                    }
+                }
+
                 if (!fetchResult.fetchContent(page)) {
                     throw new ContentFetchException();
                 }
@@ -408,6 +460,28 @@ public class WebCrawler implements Runnable {
                 parser.parse(page, curURL.getURL());
 
                 ParseData parseData = page.getParseData();
+
+                if (lastModified != null && parseData instanceof HtmlParseData) {
+                    String canonical = null;
+                    HtmlParseData htmlParseData = (HtmlParseData) parseData;
+                    for (Map.Entry<String, String> entry : htmlParseData.getMetaTags().entrySet()) {
+                        if (entry.getKey().equals("canonical")) {
+                            canonical = entry.getValue();
+                            break;
+                        }
+                    }
+
+                    if (canonical != null) {
+                        page.setCanonicalUrl(canonical);
+                        CachedPage cachedPage = pagesDB.get(canonical);
+                        if (lastModified != null && cachedPage != null &&
+                            cachedPage.getLastModifiedDate().equals(lastModified)) {
+                            logger.debug("Page: {} has not been modified ", curURL);
+                            return;
+                        }
+                    }
+                }
+
                 List<WebURL> toSchedule = new ArrayList<>();
                 int maxCrawlDepth = myController.getConfig().getMaxDepthOfCrawling();
                 for (WebURL webURL : parseData.getOutgoingUrls()) {
@@ -430,8 +504,7 @@ public class WebCrawler implements Runnable {
                                 } else {
                                     logger.debug(
                                         "Not visiting: {} as per the server's \"robots.txt\" " +
-                                        "policy",
-                                        webURL.getURL());
+                                        "policy", webURL.getURL());
                                 }
                             } else {
                                 logger.debug("Not visiting: {} as per your \"shouldVisit\" policy",
@@ -441,6 +514,19 @@ public class WebCrawler implements Runnable {
                     }
                 }
                 frontier.scheduleAll(toSchedule);
+
+                // save page to processed page db
+                if (myController.config.isOnlyProcessModifiedPages()) {
+                    if (lastModified != null) {
+                        pagesDB.set(
+                            new CachedPage(page.getWebURL().getURL(), page.getCanonicalUrl(),
+                                           lastModified, page.getWebURL()));
+                    } else {
+                        logger.debug("could not retrieve last mofified, " +
+                                     "page: {} is not saved to processed pages",
+                                     page.getCanonicalUrl());
+                    }
+                }
 
                 visit(page);
             }

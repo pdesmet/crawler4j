@@ -30,6 +30,7 @@ import com.sleepycat.je.EnvironmentConfig;
 import edu.uci.ics.crawler4j.fetcher.PageFetcher;
 import edu.uci.ics.crawler4j.frontier.DocIDServer;
 import edu.uci.ics.crawler4j.frontier.Frontier;
+import edu.uci.ics.crawler4j.frontier.ProcessedPagesDB;
 import edu.uci.ics.crawler4j.robotstxt.RobotstxtServer;
 import edu.uci.ics.crawler4j.url.TLDList;
 import edu.uci.ics.crawler4j.url.URLCanonicalizer;
@@ -44,7 +45,7 @@ import edu.uci.ics.crawler4j.util.IO;
  */
 public class CrawlController extends Configurable {
 
-    static final Logger logger = LoggerFactory.getLogger(CrawlController.class);
+    static final Logger LOGGER = LoggerFactory.getLogger(CrawlController.class);
 
     /**
      * The 'customData' object can be used for passing custom crawl-related
@@ -73,6 +74,7 @@ public class CrawlController extends Configurable {
     protected RobotstxtServer robotstxtServer;
     protected Frontier frontier;
     protected DocIDServer docIdServer;
+    protected ProcessedPagesDB pagesDB;
 
     protected final Object waitingLock = new Object();
     protected final Environment env;
@@ -85,7 +87,7 @@ public class CrawlController extends Configurable {
         File folder = new File(config.getCrawlStorageFolder());
         if (!folder.exists()) {
             if (folder.mkdirs()) {
-                logger.debug("Created folder: " + folder.getAbsolutePath());
+                LOGGER.debug("Created folder: " + folder.getAbsolutePath());
             } else {
                 throw new Exception(
                     "couldn't create the storage folder: " + folder.getAbsolutePath() +
@@ -105,16 +107,36 @@ public class CrawlController extends Configurable {
         File envHome = new File(config.getCrawlStorageFolder() + "/frontier");
         if (!envHome.exists()) {
             if (envHome.mkdir()) {
-                logger.debug("Created folder: " + envHome.getAbsolutePath());
+                LOGGER.debug("Created folder: " + envHome.getAbsolutePath());
             } else {
                 throw new Exception(
                     "Failed creating the frontier folder: " + envHome.getAbsolutePath());
             }
         }
 
+        if (config.isOnlyProcessModifiedPages()) {
+            File envHomePages = new File(config.getCrawlStorageFolder() + "/pages");
+            if (!envHomePages.exists()) {
+                if (envHomePages.mkdir()) {
+                    LOGGER.debug("Created folder: " + envHomePages.getAbsolutePath());
+                } else {
+                    throw new Exception(
+                        "Failed creating the pages folder: " + envHomePages.getAbsolutePath());
+                }
+            }
+
+            EnvironmentConfig envConfigPAges = new EnvironmentConfig();
+            envConfigPAges.setAllowCreate(true);
+            envConfigPAges.setTransactional(true);
+            envConfigPAges.setLocking(true);
+
+            Environment envPages = new Environment(envHomePages, envConfigPAges);
+            pagesDB = new ProcessedPagesDB(envPages, config);
+        }
+
         if (!resumable) {
             IO.deleteFolderContents(envHome);
-            logger.info("Deleted contents of: " + envHome +
+            LOGGER.info("Deleted contents of: " + envHome +
                         " ( as you have configured resumable crawling to false )");
         }
 
@@ -227,7 +249,7 @@ public class CrawlController extends Configurable {
                 thread.start();
                 crawlers.add(crawler);
                 threads.add(thread);
-                logger.info("Crawler {} started", i);
+                LOGGER.info("Crawler {} started", i);
             }
 
             final CrawlController controller = this;
@@ -239,6 +261,10 @@ public class CrawlController extends Configurable {
                     try {
                         synchronized (waitingLock) {
 
+                            if (config.isOnlyProcessModifiedPages()) {
+                                loadProcessedPagesToQueue();
+                            }
+
                             while (true) {
                                 sleep(10);
                                 boolean someoneIsWorking = false;
@@ -246,7 +272,7 @@ public class CrawlController extends Configurable {
                                     Thread thread = threads.get(i);
                                     if (!thread.isAlive()) {
                                         if (!shuttingDown) {
-                                            logger.info("Thread {} was dead, I'll recreate it", i);
+                                            LOGGER.info("Thread {} was dead, I'll recreate it", i);
                                             T crawler = crawlerFactory.newInstance();
                                             thread = new Thread(crawler, "Crawler " + (i + 1));
                                             threads.remove(i);
@@ -266,7 +292,7 @@ public class CrawlController extends Configurable {
                                     // Make sure again that none of the threads
                                     // are
                                     // alive.
-                                    logger.info(
+                                    LOGGER.info(
                                         "It looks like no thread is working, waiting for 10 " +
                                         "seconds to make sure...");
                                     sleep(10);
@@ -285,7 +311,7 @@ public class CrawlController extends Configurable {
                                             if (queueLength > 0) {
                                                 continue;
                                             }
-                                            logger.info(
+                                            LOGGER.info(
                                                 "No thread is working and no more URLs are in " +
                                                 "queue waiting for another 10 seconds to make " +
                                                 "sure...");
@@ -296,7 +322,7 @@ public class CrawlController extends Configurable {
                                             }
                                         }
 
-                                        logger.info(
+                                        LOGGER.info(
                                             "All of the crawlers are stopped. Finishing the " +
                                             "process...");
                                         // At this step, frontier notifies the threads that were
@@ -307,9 +333,16 @@ public class CrawlController extends Configurable {
                                             crawlersLocalData.add(crawler.getMyLocalData());
                                         }
 
-                                        logger.info(
+                                        LOGGER.info(
                                             "Waiting for 10 seconds before final clean up...");
                                         sleep(10);
+
+                                        if (config.isDeleteCrawlCacheWhenFinished()) {
+                                            IO.deleteFolderContents(env.getHome());
+                                            LOGGER.info("Deleted contents of: " + env.getHome() +
+                                                        " ( as that the delete crawl cache can be" +
+                                                        " deleted )");
+                                        }
 
                                         frontier.close();
                                         docIdServer.close();
@@ -325,7 +358,7 @@ public class CrawlController extends Configurable {
                             }
                         }
                     } catch (Exception e) {
-                        logger.error("Unexpected Error", e);
+                        LOGGER.error("Unexpected Error", e);
                     }
                 }
             });
@@ -337,8 +370,12 @@ public class CrawlController extends Configurable {
             }
 
         } catch (Exception e) {
-            logger.error("Error happened", e);
+            LOGGER.error("Error happened", e);
         }
+    }
+
+    private void loadProcessedPagesToQueue() {
+        pagesDB.loadPagesToFrontierQueue(frontier);
     }
 
     /**
@@ -353,7 +390,7 @@ public class CrawlController extends Configurable {
                 try {
                     waitingLock.wait();
                 } catch (InterruptedException e) {
-                    logger.error("Error occurred", e);
+                    LOGGER.error("Error occurred", e);
                 }
             }
         }
@@ -412,12 +449,12 @@ public class CrawlController extends Configurable {
     public void addSeed(String pageUrl, int docId) {
         String canonicalUrl = URLCanonicalizer.getCanonicalURL(pageUrl);
         if (canonicalUrl == null) {
-            logger.error("Invalid seed URL: {}", pageUrl);
+            LOGGER.error("Invalid seed URL: {}", pageUrl);
         } else {
             if (docId < 0) {
                 docId = docIdServer.getDocId(canonicalUrl);
                 if (docId > 0) {
-                    logger.trace("This URL is already seen.");
+                    LOGGER.trace("This URL is already seen.");
                     return;
                 }
                 docId = docIdServer.getNewDocID(canonicalUrl);
@@ -425,7 +462,7 @@ public class CrawlController extends Configurable {
                 try {
                     docIdServer.addUrlAndDocId(canonicalUrl, docId);
                 } catch (Exception e) {
-                    logger.error("Could not add seed: {}", e.getMessage());
+                    LOGGER.error("Could not add seed: {}", e.getMessage());
                 }
             }
 
@@ -437,7 +474,7 @@ public class CrawlController extends Configurable {
                 frontier.schedule(webUrl);
             } else {
                 // using the WARN level here, as the user specifically asked to add this seed
-                logger.warn("Robots.txt does not allow this seed: {}", pageUrl);
+                LOGGER.warn("Robots.txt does not allow this seed: {}", pageUrl);
             }
         }
     }
@@ -461,12 +498,12 @@ public class CrawlController extends Configurable {
     public void addSeenUrl(String url, int docId) {
         String canonicalUrl = URLCanonicalizer.getCanonicalURL(url);
         if (canonicalUrl == null) {
-            logger.error("Invalid Url: {} (can't cannonicalize it!)", url);
+            LOGGER.error("Invalid Url: {} (can't cannonicalize it!)", url);
         } else {
             try {
                 docIdServer.addUrlAndDocId(canonicalUrl, docId);
             } catch (Exception e) {
-                logger.error("Could not add seen url: {}", e.getMessage());
+                LOGGER.error("Could not add seen url: {}", e.getMessage());
             }
         }
     }
@@ -503,6 +540,14 @@ public class CrawlController extends Configurable {
         this.docIdServer = docIdServer;
     }
 
+    public ProcessedPagesDB getPagesDB() {
+        return pagesDB;
+    }
+
+    public void setPagesDB(ProcessedPagesDB pagesDB) {
+        this.pagesDB = pagesDB;
+    }
+
     public Object getCustomData() {
         return customData;
     }
@@ -525,7 +570,7 @@ public class CrawlController extends Configurable {
      * process new pages.
      */
     public void shutdown() {
-        logger.info("Shutting down...");
+        LOGGER.info("Shutting down...");
         this.shuttingDown = true;
         pageFetcher.shutDown();
         frontier.finish();

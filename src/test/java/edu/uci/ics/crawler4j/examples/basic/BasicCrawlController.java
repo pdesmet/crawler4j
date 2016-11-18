@@ -96,7 +96,7 @@ public class BasicCrawlController {
      * want to start a fresh crawl, you need to delete the contents of
      * rootFolder manually.
      */
-        config.setResumableCrawling(false);
+        config.setResumableCrawling(true);
 
     /*
      * This config parameter is used to filter out certain parts of the text.
@@ -107,7 +107,9 @@ public class BasicCrawlController {
      * want to follow the links.
      * This will not work on the given seeds but is to give an idea for future projects
      */
-        config.setHtmlFilterTag("crawlerfilter");
+        config.setHtmlFilterTag("customfilter");
+        config.setOnlyProcessModifiedPages(true);
+        config.setDeleteCrawlCacheWhenFinished(true);
 
     /*
      * Instantiate the controller for this crawl.
@@ -122,9 +124,11 @@ public class BasicCrawlController {
      * URLs that are fetched and then the crawler starts following links
      * which are found in these pages
      */
-        controller.addSeed("http://www.ics.uci.edu/");
-        controller.addSeed("http://www.ics.uci.edu/~lopes/");
-        controller.addSeed("http://www.ics.uci.edu/~welling/");
+        controller.addSeed("https://vdab.be/");
+        controller.addSeed("http://test.local/");
+        //        controller.addSeed("http://www.ics.uci.edu/");
+        //        controller.addSeed("http://www.ics.uci.edu/~lopes/");
+        //        controller.addSeed("http://www.ics.uci.edu/~welling/");
 
     /*
      * Start the crawl. This is a blocking operation, meaning that your code

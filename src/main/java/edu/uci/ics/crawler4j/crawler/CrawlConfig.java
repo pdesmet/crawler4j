@@ -173,6 +173,24 @@ public class CrawlConfig {
     private String htmlFilterTag = null;
 
     /**
+     * If we only want to process modified pages.
+     * Otherwise process all the pages.
+     * This will make the crawler a bit slower.
+     */
+    private boolean onlyProcessModifiedPages = false;
+
+    /**
+     * When this is empty the same crawlFolderStorage will be used.
+     */
+    private String processedPagesStorageFolder;
+
+    /**
+     * When enable, the cache of the resume crawling will be delete after the crawl
+     * So every time the crawler was finished and start with a re-crawl
+     */
+    private boolean deleteCrawlCacheWhenFinished;
+
+    /**
      * Validates the configs specified by this instance.
      *
      * @throws Exception on Validation fail
@@ -530,6 +548,30 @@ public class CrawlConfig {
         this.htmlFilterTag = htmlFilterTag.toLowerCase();
     }
 
+    public boolean isOnlyProcessModifiedPages() {
+        return onlyProcessModifiedPages;
+    }
+
+    public void setOnlyProcessModifiedPages(boolean onlyProcessModifiedPages) {
+        this.onlyProcessModifiedPages = onlyProcessModifiedPages;
+    }
+
+    public String getProcessedPagesStorageFolder() {
+        return processedPagesStorageFolder;
+    }
+
+    public void setProcessedPagesStorageFolder(String processedPagesStorageFolder) {
+        this.processedPagesStorageFolder = processedPagesStorageFolder;
+    }
+
+    public boolean isDeleteCrawlCacheWhenFinished() {
+        return deleteCrawlCacheWhenFinished;
+    }
+
+    public void setDeleteCrawlCacheWhenFinished(boolean deleteCrawlCacheWhenFinished) {
+        this.deleteCrawlCacheWhenFinished = deleteCrawlCacheWhenFinished;
+    }
+
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder();
@@ -552,6 +594,9 @@ public class CrawlConfig {
         sb.append("Proxy username: " + getProxyUsername() + "\n");
         sb.append("Proxy password: " + getProxyPassword() + "\n");
         sb.append("HTML filter tags: " + getHtmlFilterTag() + "\n");
+        sb.append("Only process modified pages: " + isOnlyProcessModifiedPages() + "\n");
+        sb.append("Processed pages storage folder: " + getProcessedPagesStorageFolder() + "\n");
+        sb.append("Delete crawl cache when finished: " + isDeleteCrawlCacheWhenFinished() + "\n");
         return sb.toString();
     }
 }

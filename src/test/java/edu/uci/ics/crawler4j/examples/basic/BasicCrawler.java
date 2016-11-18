@@ -45,9 +45,16 @@ public class BasicCrawler extends WebCrawler {
         if (IMAGE_EXTENSIONS.matcher(href).matches()) {
             return false;
         }
-
+        boolean canVisit = false;
+        if (href.startsWith("https://vdab.be/")) {
+            canVisit = true;
+        } else if (href.startsWith("https://www.vdab.be/")) {
+            canVisit = true;
+        } else if (href.startsWith("http://test.local/")) {
+            canVisit = true;
+        }
         // Only accept the url if it is in the "www.ics.uci.edu" domain and protocol is "http".
-        return href.startsWith("http://www.ics.uci.edu/");
+        return canVisit;
     }
 
     /**
@@ -78,14 +85,14 @@ public class BasicCrawler extends WebCrawler {
             String html = htmlParseData.getHtml();
             Set<WebURL> links = htmlParseData.getOutgoingUrls();
 
-            logger.debug("Text length: {}", text.length());
+            logger.debug("************************\nText length: {}", text.length());
             logger.debug("Text : {}", text);
-            logger.debug("Html length: {}", html.length());
-            logger.debug("Html : {}", html);
-            logger.debug("Number of outgoing links: {}", links.size());
-            for (WebURL link : links) {
-                logger.debug("Link : {}", link.getURL());
-            }
+            //            logger.debug("Html length: {}", html.length());
+            //            logger.debug("Html : {}", html);
+            //            logger.debug("Number of outgoing links: {}", links.size());
+            //            for (WebURL link : links) {
+            //                logger.debug("Link : {}", link.getURL());
+            //            }
         }
 
         Header[] responseHeaders = page.getFetchResponseHeaders();

@@ -95,12 +95,17 @@ public class HtmlContentHandler extends DefaultHandler {
         }
 
         if ((element == Element.A) || (element == Element.AREA) || (element == Element.LINK)) {
+            String rel = attributes.getValue("rel");
             String href = attributes.getValue("href");
-            if (href != null) {
+
+            if (rel != null && rel.equals("canonical") && href != null) {
+                metaTags.put(rel, href);
+            } else if (href != null) {
                 anchorFlag = true;
                 addToOutgoingUrls(href, localName);
 
             }
+
         } else if (element == Element.IMG) {
             String imgSrc = attributes.getValue("src");
             if (imgSrc != null) {

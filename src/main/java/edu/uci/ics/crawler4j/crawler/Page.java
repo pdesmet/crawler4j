@@ -40,6 +40,11 @@ public class Page {
     protected WebURL url;
 
     /**
+     * The canonical url of this page
+     */
+    private String canonicalUrl;
+
+    /**
      * Redirection flag
      */
     protected boolean redirect;
@@ -236,5 +241,16 @@ public class Page {
 
     public void setLanguage(String language) {
         this.language = language;
+    }
+
+    public String getCanonicalUrl() {
+        if (canonicalUrl != null) {
+            return canonicalUrl;
+        }
+        return getWebURL().getURL();
+    }
+
+    public void setCanonicalUrl(String canonicalUrl) {
+        this.canonicalUrl = canonicalUrl;
     }
 }

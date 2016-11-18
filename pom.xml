@@ -5,7 +5,7 @@
     <artifactId>crawler4j</artifactId>
     <packaging>jar</packaging>
     <name>crawler4j</name>
-    <version>4.3-SNAPSHOT</version>
+    <version>5.0-SNAPSHOT</version>
     <description>Open Source Web Crawler for Java</description>
     <url>https://github.com/yasserg/crawler4j</url>
     <licenses>
@@ -125,6 +125,19 @@
                     </dependency>
                 </dependencies>
             </plugin>
+            <plugin>
+                <artifactId>maven-deploy-plugin</artifactId>
+                <version>2.8.1</version>
+                <executions>
+                    <execution>
+                        <id>default-deploy</id>
+                        <phase>deploy</phase>
+                        <goals>
+                            <goal>deploy</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
         </plugins>
     </build>
 
@@ -158,7 +171,7 @@
         <dependency>
             <groupId>com.sleepycat</groupId>
             <artifactId>je</artifactId>
-            <version>5.0.73</version>
+            <version>5.0.84</version>
         </dependency>
 
         <dependency>
@@ -166,6 +179,21 @@
             <artifactId>tika-parsers</artifactId>
             <version>1.5</version>
         </dependency>
+
+        <dependency>
+            <groupId>joda-time</groupId>
+            <artifactId>joda-time</artifactId>
+            <version>2.9.5</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-lang3</artifactId>
+            <version>3.5</version>
+        </dependency>
+
+
+
 
         <!-- Test Dependencies -->
         <dependency>
@@ -185,4 +213,14 @@
         </repository>
     </repositories>
 
+    <distributionManagement>
+        <repository>
+            <id>releases</id>
+            <url>http://maven.vdab.be:14040/nexus/content/repositories/releases</url>
+        </repository>
+        <snapshotRepository>
+            <id>snapshots</id>
+            <url>http://maven.vdab.be:14040/nexus/content/repositories/snapshots</url>
+        </snapshotRepository>
+    </distributionManagement>
 </project>
